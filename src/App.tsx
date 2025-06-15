@@ -17,10 +17,20 @@ import InvoiceManagement from './components/InvoiceManagement';
 import UserManagement from './components/UserManagement';
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
 
+  // Add detailed logging for debugging
+  console.log('🔄 AppContent render:', { 
+    isAuthenticated, 
+    isLoading, 
+    userExists: !!user,
+    userEmail: user?.email,
+    userRole: user?.role 
+  });
+
   if (isLoading) {
+    console.log('⏳ App is loading...');
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -32,8 +42,11 @@ const AppContent: React.FC = () => {
   }
 
   if (!isAuthenticated) {
+    console.log('❌ User not authenticated, showing login page');
     return <LoginPage />;
   }
+
+  console.log('✅ User authenticated, showing dashboard');
 
   const renderContent = () => {
     switch (activeTab) {
@@ -126,6 +139,8 @@ const AppContent: React.FC = () => {
 };
 
 function App() {
+  console.log('🚀 App component mounting...');
+  
   return (
     <AuthProvider>
       <AppContent />

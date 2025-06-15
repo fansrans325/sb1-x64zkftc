@@ -17,6 +17,9 @@ const LoginPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
 
+  // Add logging for debugging
+  console.log('🔐 LoginPage render:', { isLoading, isSubmitting });
+
   // Password strength checker
   useEffect(() => {
     const checkPasswordStrength = (password: string): number => {
@@ -54,23 +57,37 @@ const LoginPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('📝 Login form submitted:', { email: formData.email });
+    
     setError('');
     setSuccess('');
 
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      console.log('❌ Form validation failed');
+      return;
+    }
 
     setIsSubmitting(true);
+    console.log('🔄 Starting login process...');
 
     try {
       const result = await login(formData.email, formData.password, rememberMe);
       
+      console.log('📊 Login result:', result);
+      
       if (!result.success) {
+        console.log('❌ Login failed:', result.error);
         setError(result.error || 'Login gagal');
+      } else {
+        console.log('✅ Login successful, should redirect to dashboard');
+        // Don't set any success message, let the app redirect
       }
     } catch (error) {
+      console.error('❌ Login exception:', error);
       setError('Terjadi kesalahan sistem. Silakan coba lagi.');
     } finally {
       setIsSubmitting(false);
+      console.log('🏁 Login process completed');
     }
   };
 
@@ -126,6 +143,21 @@ const LoginPage: React.FC = () => {
     if (strength <= 3) return 'Sedang';
     if (strength <= 4) return 'Kuat';
     return 'Sangat Kuat';
+  };
+
+  // Quick fill demo credentials
+  const fillDemoCredentials = (role: string) => {
+    const credentials = {
+      admin: { email: 'admin@rentalinx.com', password: 'Admin123!' },
+      manager: { email: 'manager@rentalinx.com', password: 'password123' },
+      telemarketing: { email: 'sari.mobil@rentalinx.com', password: 'password123' }
+    };
+    
+    const cred = credentials[role as keyof typeof credentials];
+    if (cred) {
+      setFormData(cred);
+      console.log('🎯 Demo credentials filled:', cred.email);
+    }
   };
 
   if (showForgotPassword) {
@@ -335,20 +367,32 @@ const LoginPage: React.FC = () => {
 
           {/* Demo Credentials */}
           <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <h3 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+            <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
               <Shield className="w-4 h-4 mr-2" />
-              Demo Credentials
+              Demo Credentials - Klik untuk mengisi otomatis
             </h3>
-            <div className="space-y-2 text-xs text-gray-600">
-              <div>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => fillDemoCredentials('admin')}
+                className="w-full text-left text-xs text-gray-600 hover:text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors"
+              >
                 <strong>Admin:</strong> admin@rentalinx.com / Admin123!
-              </div>
-              <div>
+              </button>
+              <button
+                type="button"
+                onClick={() => fillDemoCredentials('manager')}
+                className="w-full text-left text-xs text-gray-600 hover:text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors"
+              >
                 <strong>Manager:</strong> manager@rentalinx.com / password123
-              </div>
-              <div>
+              </button>
+              <button
+                type="button"
+                onClick={() => fillDemoCredentials('telemarketing')}
+                className="w-full text-left text-xs text-gray-600 hover:text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors"
+              >
                 <strong>Telemarketing:</strong> sari.mobil@rentalinx.com / password123
-              </div>
+              </button>
             </div>
           </div>
 
