@@ -74,6 +74,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         .from('users')
         .select('*')
         .eq('email', email.toLowerCase())
+        .eq('is_active', true)
         .limit(1);
 
       if (fetchError) {
