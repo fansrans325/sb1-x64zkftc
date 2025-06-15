@@ -26,24 +26,35 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const checkExistingSession = () => {
       try {
+        console.log('🔍 Checking for existing session...');
         const savedUser = localStorage.getItem('rentalinx_user');
         const sessionExpiry = localStorage.getItem('rentalinx_session_expiry');
         
+        console.log('Saved user exists:', !!savedUser);
+        console.log('Session expiry exists:', !!sessionExpiry);
+        
         if (savedUser && sessionExpiry) {
           const expiryDate = new Date(sessionExpiry);
-          if (expiryDate > new Date()) {
+          const now = new Date();
+          console.log('Session expiry:', expiryDate);
+          console.log('Current time:', now);
+          console.log('Session valid:', expiryDate > now);
+          
+          if (expiryDate > now) {
             const userData = JSON.parse(savedUser);
             setUser(userData);
-            console.log('Restored user session:', userData);
+            console.log('✅ Restored user session:', userData.email, userData.role);
           } else {
             // Session expired
             localStorage.removeItem('rentalinx_user');
             localStorage.removeItem('rentalinx_session_expiry');
-            console.log('Session expired, cleared storage');
+            console.log('⏰ Session expired, cleared storage');
           }
+        } else {
+          console.log('❌ No saved session found');
         }
       } catch (error) {
-        console.error('Error checking existing session:', error);
+        console.error('❌ Error checking existing session:', error);
         localStorage.removeItem('rentalinx_user');
         localStorage.removeItem('rentalinx_session_expiry');
       } finally {
@@ -55,63 +66,80 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const login = async (email: string, password: string, rememberMe: boolean = false): Promise<{ success: boolean; error?: string }> => {
-    console.log('Login attempt for:', email);
+    console.log('🔐 Login attempt for:', email);
     setIsLoading(true);
     
     try {
       // Input validation
       if (!email || !password) {
+        console.log('❌ Missing email or password');
         return { success: false, error: 'Email dan password harus diisi' };
       }
 
       // Email format validation
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
+        console.log('❌ Invalid email format');
         return { success: false, error: 'Format email tidak valid' };
       }
 
       // Simulate network delay
       await new Promise(resolve => setTimeout(resolve, 1000));
 
+      console.log('🔍 Querying database for user...');
+      
       // Check credentials against our users table
       const { data: users, error: fetchError } = await supabase
         .from('users')
         .select('*')
         .eq('email', email.toLowerCase())
-        .eq('is_active', true)
         .limit(1);
 
-      console.log('Database query result:', { users, fetchError });
+      console.log('📊 Database query result:', { 
+        usersFound: users?.length || 0, 
+        fetchError: fetchError?.message 
+      });
 
       if (fetchError) {
-        console.error('Database error:', fetchError);
+        console.error('❌ Database error:', fetchError);
         return { success: false, error: 'Terjadi kesalahan sistem. Silakan coba lagi.' };
       }
 
       if (!users || users.length === 0) {
-        console.log('No user found with email:', email);
+        console.log('❌ No user found with email:', email);
         return { success: false, error: 'Email atau password salah' };
       }
 
       const foundUser = users[0];
-      console.log('Found user:', { id: foundUser.id, email: foundUser.email, role: foundUser.role });
+      console.log('👤 Found user:', { 
+        id: foundUser.id, 
+        email: foundUser.email, 
+        role: foundUser.role,
+        isActive: foundUser.is_active 
+      });
 
       // Check if user is active
       if (!foundUser.is_active) {
+        console.log('❌ User account is inactive');
         return { success: false, error: 'Akun Anda telah dinonaktifkan. Hubungi administrator.' };
       }
 
       // Validate password (simplified hash check)
+      console.log('🔐 Validating password...');
       const hashedInputPassword = await hashPassword(password);
-      console.log('Password validation:', { 
-        inputHash: hashedInputPassword.substring(0, 10) + '...', 
-        storedHash: foundUser.password_hash.substring(0, 10) + '...',
+      
+      console.log('🔍 Password validation:', { 
+        inputHash: hashedInputPassword.substring(0, 20) + '...', 
+        storedHash: foundUser.password_hash.substring(0, 20) + '...',
         match: hashedInputPassword === foundUser.password_hash 
       });
 
       if (hashedInputPassword !== foundUser.password_hash) {
+        console.log('❌ Password mismatch');
         return { success: false, error: 'Email atau password salah' };
       }
+
+      console.log('✅ Password validated successfully');
 
       // Update last login
       try {
@@ -119,8 +147,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           .from('users')
           .update({ last_login: new Date().toISOString() })
           .eq('id', foundUser.id);
+        console.log('✅ Last login updated');
       } catch (updateError) {
-        console.warn('Failed to update last login:', updateError);
+        console.warn('⚠️ Failed to update last login:', updateError);
         // Don't fail login for this
       }
 
@@ -136,7 +165,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         permissions: foundUser.permissions || []
       };
 
-      console.log('Creating user session:', userSession);
+      console.log('👤 Creating user session:', userSession.email, userSession.role);
       setUser(userSession);
 
       // Store session
@@ -146,10 +175,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem('rentalinx_user', JSON.stringify(userSession));
       localStorage.setItem('rentalinx_session_expiry', expiryDate.toISOString());
 
-      console.log('Login successful, session stored');
+      console.log('💾 Session stored with expiry:', expiryDate);
+      console.log('🎉 Login successful!');
+      
       return { success: true };
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('❌ Login error:', error);
       return { success: false, error: 'Terjadi kesalahan sistem. Silakan coba lagi.' };
     } finally {
       setIsLoading(false);
@@ -157,7 +188,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = (): void => {
-    console.log('Logging out user');
+    console.log('👋 Logging out user');
     setUser(null);
     localStorage.removeItem('rentalinx_user');
     localStorage.removeItem('rentalinx_session_expiry');
@@ -214,7 +245,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     resetPassword
   };
 
-  console.log('AuthContext state:', { 
+  console.log('🔄 AuthContext state:', { 
     isAuthenticated: !!user, 
     isLoading, 
     userRole: user?.role,
