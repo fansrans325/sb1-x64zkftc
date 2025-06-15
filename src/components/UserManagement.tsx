@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, Edit, Trash2, User, Shield, Eye, EyeOff, Car, Bus, Truck, Users, CheckCircle, XCircle, Calendar, Clock, Loader2 } from 'lucide-react';
-import { userService } from '../services/userService';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 
 interface UserType {
@@ -37,10 +37,23 @@ const UserManagement: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await userService.getAll();
-      setUsers(data);
+      console.log('📊 Loading users from Supabase...');
+      
+      const { data, error: fetchError } = await supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (fetchError) {
+        console.error('❌ Error loading users:', fetchError);
+        setError('Gagal memuat data pengguna: ' + fetchError.message);
+        return;
+      }
+
+      console.log('✅ Users loaded successfully:', data?.length || 0, 'users');
+      setUsers(data || []);
     } catch (error) {
-      console.error('Error loading users:', error);
+      console.error('❌ Unexpected error loading users:', error);
       setError('Gagal memuat data pengguna');
     } finally {
       setLoading(false);
@@ -121,22 +134,44 @@ const UserManagement: React.FC = () => {
     try {
       setSubmitting(true);
       setError(null);
+      console.log('➕ Creating new user:', userData.email);
       
-      await userService.create({
-        name: userData.name,
-        email: userData.email,
-        password_hash: userData.password,
-        role: userData.role
-      });
+      // Hash password
+      const hashedPassword = await hashPassword(userData.password);
       
+      // Get permissions based on role
+      const permissions = getPermissionsByRole(userData.role);
+      
+      const { data, error: createError } = await supabase
+        .from('users')
+        .insert({
+          name: userData.name,
+          email: userData.email,
+          password_hash: hashedPassword,
+          role: userData.role,
+          is_active: true,
+          permissions: permissions
+        })
+        .select()
+        .single();
+      
+      if (createError) {
+        console.error('❌ Error creating user:', createError);
+        if (createError.code === '23505' && createError.message.includes('email')) {
+          setError('Email sudah digunakan oleh pengguna lain');
+        } else {
+          setError('Gagal menambahkan pengguna: ' + createError.message);
+        }
+        return;
+      }
+      
+      console.log('✅ User created successfully:', data.email);
       await loadUsers(); // Reload users
       setShowAddModal(false);
       alert('Pengguna berhasil ditambahkan!');
     } catch (error: any) {
-      console.error('Error adding user:', error);
-      const errorMessage = error.message || 'Gagal menambahkan pengguna';
-      setError(errorMessage);
-      alert(errorMessage);
+      console.error('❌ Error adding user:', error);
+      setError('Gagal menambahkan pengguna');
     } finally {
       setSubmitting(false);
     }
@@ -148,29 +183,41 @@ const UserManagement: React.FC = () => {
     try {
       setSubmitting(true);
       setError(null);
+      console.log('✏️ Updating user:', selectedUser.email);
       
       const updateData: any = {
         name: userData.name,
         email: userData.email,
-        role: userData.role
+        role: userData.role,
+        permissions: getPermissionsByRole(userData.role)
       };
 
       // Only update password if provided
       if (userData.password && userData.password.trim()) {
-        updateData.password_hash = userData.password;
+        updateData.password_hash = await hashPassword(userData.password);
       }
 
-      await userService.update(selectedUser.id, updateData);
+      const { data, error: updateError } = await supabase
+        .from('users')
+        .update(updateData)
+        .eq('id', selectedUser.id)
+        .select()
+        .single();
       
+      if (updateError) {
+        console.error('❌ Error updating user:', updateError);
+        setError('Gagal memperbarui pengguna: ' + updateError.message);
+        return;
+      }
+      
+      console.log('✅ User updated successfully:', data.email);
       await loadUsers(); // Reload users
       setShowEditModal(false);
       setSelectedUser(null);
       alert('Pengguna berhasil diperbarui!');
     } catch (error: any) {
-      console.error('Error updating user:', error);
-      const errorMessage = error.message || 'Gagal memperbarui pengguna';
-      setError(errorMessage);
-      alert(errorMessage);
+      console.error('❌ Error updating user:', error);
+      setError('Gagal memperbarui pengguna');
     } finally {
       setSubmitting(false);
     }
@@ -180,14 +227,25 @@ const UserManagement: React.FC = () => {
     if (confirm('Apakah Anda yakin ingin menghapus pengguna ini?')) {
       try {
         setError(null);
-        await userService.delete(userId);
+        console.log('🗑️ Deleting user:', userId);
+        
+        const { error: deleteError } = await supabase
+          .from('users')
+          .delete()
+          .eq('id', userId);
+        
+        if (deleteError) {
+          console.error('❌ Error deleting user:', deleteError);
+          setError('Gagal menghapus pengguna: ' + deleteError.message);
+          return;
+        }
+        
+        console.log('✅ User deleted successfully');
         await loadUsers(); // Reload users
         alert('Pengguna berhasil dihapus!');
       } catch (error: any) {
-        console.error('Error deleting user:', error);
-        const errorMessage = error.message || 'Gagal menghapus pengguna';
-        setError(errorMessage);
-        alert(errorMessage);
+        console.error('❌ Error deleting user:', error);
+        setError('Gagal menghapus pengguna');
       }
     }
   };
@@ -195,13 +253,27 @@ const UserManagement: React.FC = () => {
   const handleToggleStatus = async (userId: string) => {
     try {
       setError(null);
-      await userService.toggleStatus(userId);
+      const userToToggle = users.find(u => u.id === userId);
+      if (!userToToggle) return;
+      
+      console.log('🔄 Toggling user status:', userToToggle.email);
+      
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ is_active: !userToToggle.is_active })
+        .eq('id', userId);
+      
+      if (updateError) {
+        console.error('❌ Error toggling user status:', updateError);
+        setError('Gagal mengubah status pengguna: ' + updateError.message);
+        return;
+      }
+      
+      console.log('✅ User status toggled successfully');
       await loadUsers(); // Reload users
     } catch (error: any) {
-      console.error('Error toggling user status:', error);
-      const errorMessage = error.message || 'Gagal mengubah status pengguna';
-      setError(errorMessage);
-      alert(errorMessage);
+      console.error('❌ Error toggling user status:', error);
+      setError('Gagal mengubah status pengguna');
     }
   };
 
@@ -594,5 +666,34 @@ const UserManagement: React.FC = () => {
     </div>
   );
 };
+
+// Helper function to hash password (same as AuthContext)
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + 'salt');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Helper function to get permissions by role
+function getPermissionsByRole(role: string): string[] {
+  switch (role) {
+    case 'admin':
+      return ['all'];
+    case 'manager':
+      return ['dashboard', 'customers', 'vehicles', 'reports', 'maintenance', 'vendors', 'kir', 'tax', 'pricing', 'hpp', 'invoices'];
+    case 'telemarketing-mobil':
+      return ['customers'];
+    case 'telemarketing-bus':
+      return ['customers'];
+    case 'telemarketing-elf':
+      return ['customers'];
+    case 'telemarketing-hiace':
+      return ['customers'];
+    default:
+      return [];
+  }
+}
 
 export default UserManagement;
