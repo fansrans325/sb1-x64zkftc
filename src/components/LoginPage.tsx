@@ -47,8 +47,8 @@ const LoginPage: React.FC = () => {
       return false;
     }
 
-    if (formData.password.length < 8) {
-      setError('Password minimal 8 karakter');
+    if (formData.password.length < 6) {
+      setError('Password minimal 6 karakter');
       return false;
     }
 
@@ -80,7 +80,11 @@ const LoginPage: React.FC = () => {
         setError(result.error || 'Login gagal');
       } else {
         console.log('✅ Login successful, should redirect to dashboard');
-        // Don't set any success message, let the app redirect
+        setSuccess('Login berhasil! Mengalihkan ke dashboard...');
+        // Clear form
+        setFormData({ email: '', password: '' });
+        // Don't set isSubmitting to false here, let the redirect happen
+        return;
       }
     } catch (error) {
       console.error('❌ Login exception:', error);
@@ -156,6 +160,7 @@ const LoginPage: React.FC = () => {
     const cred = credentials[role as keyof typeof credentials];
     if (cred) {
       setFormData(cred);
+      setError(''); // Clear any existing errors
       console.log('🎯 Demo credentials filled:', cred.email);
     }
   };
@@ -267,6 +272,13 @@ const LoginPage: React.FC = () => {
             <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center">
               <AlertCircle className="w-5 h-5 text-red-500 mr-3 flex-shrink-0" />
               <span className="text-red-700 text-sm">{error}</span>
+            </div>
+          )}
+
+          {success && (
+            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center">
+              <CheckCircle className="w-5 h-5 text-green-500 mr-3 flex-shrink-0" />
+              <span className="text-green-700 text-sm">{success}</span>
             </div>
           )}
 

@@ -83,8 +83,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return { success: false, error: 'Format email tidak valid' };
       }
 
+      // Test Supabase connection first
+      console.log('🔗 Testing Supabase connection...');
+      const { data: connectionTest, error: connectionError } = await supabase
+        .from('users')
+        .select('count')
+        .limit(1);
+
+      if (connectionError) {
+        console.error('❌ Supabase connection failed:', connectionError);
+        return { success: false, error: 'Tidak dapat terhubung ke database. Periksa koneksi internet Anda.' };
+      }
+
+      console.log('✅ Supabase connection successful');
+
       // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       console.log('🔍 Querying database for user...');
       
@@ -166,9 +180,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       };
 
       console.log('👤 Creating user session:', userSession.email, userSession.role);
-      setUser(userSession);
-
-      // Store session
+      
+      // Store session BEFORE setting user state
       const sessionDuration = rememberMe ? 30 * 24 * 60 * 60 * 1000 : 8 * 60 * 60 * 1000; // 30 days or 8 hours
       const expiryDate = new Date(Date.now() + sessionDuration);
       
@@ -176,6 +189,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem('rentalinx_session_expiry', expiryDate.toISOString());
 
       console.log('💾 Session stored with expiry:', expiryDate);
+      
+      // Set user state AFTER storing session
+      setUser(userSession);
+      
       console.log('🎉 Login successful!');
       
       return { success: true };
@@ -235,6 +252,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  console.log('🔄 AuthContext state:', { 
+    isAuthenticated: !!user, 
+    isLoading, 
+    userRole: user?.role,
+    userName: user?.name 
+  });
+
   const value: AuthContextType = {
     user,
     login,
@@ -244,13 +268,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     hasPermission,
     resetPassword
   };
-
-  console.log('🔄 AuthContext state:', { 
-    isAuthenticated: !!user, 
-    isLoading, 
-    userRole: user?.role,
-    userName: user?.name 
-  });
 
   return (
     <AuthContext.Provider value={value}>
