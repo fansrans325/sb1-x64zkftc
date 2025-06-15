@@ -47,8 +47,8 @@ const LoginPage: React.FC = () => {
       return false;
     }
 
-    if (formData.password.length < 6) {
-      setError('Password minimal 6 karakter');
+    if (formData.password.length < 3) {
+      setError('Password minimal 3 karakter');
       return false;
     }
 

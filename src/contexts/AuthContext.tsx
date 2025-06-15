@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../types';
-import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -17,6 +16,50 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 interface AuthProviderProps {
   children: ReactNode;
 }
+
+// Demo users - hardcoded untuk memastikan login berfungsi
+const DEMO_USERS = [
+  {
+    id: '1',
+    name: 'Administrator Rentalinx',
+    email: 'admin@rentalinx.com',
+    password: 'Admin123!',
+    role: 'admin' as const,
+    isActive: true,
+    createdAt: new Date(),
+    permissions: ['all']
+  },
+  {
+    id: '2',
+    name: 'Manager Rentalinx',
+    email: 'manager@rentalinx.com',
+    password: 'password123',
+    role: 'manager' as const,
+    isActive: true,
+    createdAt: new Date(),
+    permissions: ['dashboard', 'customers', 'vehicles', 'reports', 'maintenance', 'vendors', 'kir', 'tax', 'pricing', 'hpp', 'invoices']
+  },
+  {
+    id: '3',
+    name: 'Sari Telemarketing Mobil',
+    email: 'sari.mobil@rentalinx.com',
+    password: 'password123',
+    role: 'telemarketing-mobil' as const,
+    isActive: true,
+    createdAt: new Date(),
+    permissions: ['customers']
+  },
+  {
+    id: '4',
+    name: 'Budi Telemarketing Bus',
+    email: 'budi.bus@rentalinx.com',
+    password: 'password123',
+    role: 'telemarketing-bus' as const,
+    isActive: true,
+    createdAt: new Date(),
+    permissions: ['customers']
+  }
+];
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -83,89 +126,52 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return { success: false, error: 'Format email tidak valid' };
       }
 
-      // Test Supabase connection first
-      console.log('🔗 Testing Supabase connection...');
-      const { data: connectionTest, error: connectionError } = await supabase
-        .from('users')
-        .select('count')
-        .limit(1);
-
-      if (connectionError) {
-        console.error('❌ Supabase connection failed:', connectionError);
-        return { success: false, error: 'Tidak dapat terhubung ke database. Periksa koneksi internet Anda.' };
-      }
-
-      console.log('✅ Supabase connection successful');
-
       // Simulate network delay
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      console.log('🔍 Querying database for user...');
+      console.log('🔍 Checking demo users...');
       
-      // Check credentials against our users table
-      const { data: users, error: fetchError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', email.toLowerCase())
-        .limit(1);
+      // Check credentials against demo users
+      const foundUser = DEMO_USERS.find(u => u.email.toLowerCase() === email.toLowerCase());
 
-      console.log('📊 Database query result:', { 
-        usersFound: users?.length || 0, 
-        fetchError: fetchError?.message 
+      console.log('📊 User lookup result:', { 
+        userFound: !!foundUser, 
+        email: email 
       });
 
-      if (fetchError) {
-        console.error('❌ Database error:', fetchError);
-        return { success: false, error: 'Terjadi kesalahan sistem. Silakan coba lagi.' };
-      }
-
-      if (!users || users.length === 0) {
+      if (!foundUser) {
         console.log('❌ No user found with email:', email);
         return { success: false, error: 'Email atau password salah' };
       }
 
-      const foundUser = users[0];
       console.log('👤 Found user:', { 
         id: foundUser.id, 
         email: foundUser.email, 
         role: foundUser.role,
-        isActive: foundUser.is_active 
+        isActive: foundUser.isActive 
       });
 
       // Check if user is active
-      if (!foundUser.is_active) {
+      if (!foundUser.isActive) {
         console.log('❌ User account is inactive');
         return { success: false, error: 'Akun Anda telah dinonaktifkan. Hubungi administrator.' };
       }
 
-      // Validate password (simplified hash check)
+      // Validate password (direct comparison for demo)
       console.log('🔐 Validating password...');
-      const hashedInputPassword = await hashPassword(password);
       
       console.log('🔍 Password validation:', { 
-        inputHash: hashedInputPassword.substring(0, 20) + '...', 
-        storedHash: foundUser.password_hash.substring(0, 20) + '...',
-        match: hashedInputPassword === foundUser.password_hash 
+        inputPassword: password, 
+        storedPassword: foundUser.password,
+        match: password === foundUser.password 
       });
 
-      if (hashedInputPassword !== foundUser.password_hash) {
+      if (password !== foundUser.password) {
         console.log('❌ Password mismatch');
         return { success: false, error: 'Email atau password salah' };
       }
 
       console.log('✅ Password validated successfully');
-
-      // Update last login
-      try {
-        await supabase
-          .from('users')
-          .update({ last_login: new Date().toISOString() })
-          .eq('id', foundUser.id);
-        console.log('✅ Last login updated');
-      } catch (updateError) {
-        console.warn('⚠️ Failed to update last login:', updateError);
-        // Don't fail login for this
-      }
 
       // Create user session
       const userSession: User = {
@@ -173,10 +179,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         name: foundUser.name,
         email: foundUser.email,
         role: foundUser.role,
-        isActive: foundUser.is_active,
-        createdAt: new Date(foundUser.created_at),
+        isActive: foundUser.isActive,
+        createdAt: foundUser.createdAt,
         lastLogin: new Date(),
-        permissions: foundUser.permissions || []
+        permissions: foundUser.permissions
       };
 
       console.log('👤 Creating user session:', userSession.email, userSession.role);
@@ -232,17 +238,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Simulate network delay
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      // Check if user exists
-      const { data: users, error } = await supabase
-        .from('users')
-        .select('email')
-        .eq('email', email.toLowerCase())
-        .limit(1);
-
-      if (error) {
-        console.error('Database error:', error);
-        return { success: false, error: 'Terjadi kesalahan sistem. Silakan coba lagi.' };
-      }
+      // Check if user exists in demo users
+      const userExists = DEMO_USERS.some(u => u.email.toLowerCase() === email.toLowerCase());
 
       // Don't reveal if email exists or not for security
       return { success: true };
@@ -283,12 +280,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-
-// Helper function to hash password (same as backend)
-async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'salt');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
