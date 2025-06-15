@@ -24,9 +24,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Check for existing session on mount
   useEffect(() => {
-    const checkExistingSession = () => {
+    const checkExistingSession = async () => {
       try {
         console.log('🔍 Checking for existing session...');
+        
+        // First check if there's a Supabase session
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.user) {
+          console.log('✅ Found active Supabase session');
+          // Convert Supabase user to our User type
+          const userData: User = {
+            id: session.user.id,
+            name: session.user.user_metadata?.name || session.user.email || '',
+            email: session.user.email || '',
+            role: session.user.user_metadata?.role || 'user',
+            isActive: true,
+            createdAt: new Date(session.user.created_at || Date.now()),
+            lastLogin: new Date(),
+            permissions: []
+          };
+          setUser(userData);
+          console.log('✅ Restored user session from Supabase:', userData.email, userData.role);
+          setIsLoading(false);
+          return;
+        }
+
+        // Fallback to localStorage check
         const savedUser = localStorage.getItem('rentalinx_user');
         const sessionExpiry = localStorage.getItem('rentalinx_session_expiry');
         
@@ -43,7 +67,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           if (expiryDate > now) {
             const userData = JSON.parse(savedUser);
             setUser(userData);
-            console.log('✅ Restored user session:', userData.email, userData.role);
+            console.log('✅ Restored user session from localStorage:', userData.email, userData.role);
           } else {
             // Session expired
             localStorage.removeItem('rentalinx_user');
@@ -144,6 +168,42 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         .update({ last_login: new Date().toISOString() })
         .eq('id', foundUser.id);
 
+      // Create Supabase session via Edge Function
+      console.log('🔑 Creating Supabase session...');
+      try {
+        const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-session`;
+        
+        const sessionResponse = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: foundUser.id,
+            email: foundUser.email
+          })
+        });
+
+        if (sessionResponse.ok) {
+          const sessionData = await sessionResponse.json();
+          console.log('✅ Supabase session created successfully');
+          
+          // Set the session in Supabase client
+          await supabase.auth.setSession({
+            access_token: sessionData.access_token,
+            refresh_token: sessionData.refresh_token
+          });
+          
+          console.log('✅ Supabase session established');
+        } else {
+          console.warn('⚠️ Failed to create Supabase session, continuing with localStorage only');
+        }
+      } catch (sessionError) {
+        console.warn('⚠️ Error creating Supabase session:', sessionError);
+        console.log('Continuing with localStorage session only');
+      }
+
       // Create user session
       const userSession: User = {
         id: foundUser.id,
@@ -181,8 +241,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const logout = (): void => {
+  const logout = async (): Promise<void> => {
     console.log('👋 Logging out user');
+    
+    // Sign out from Supabase
+    try {
+      await supabase.auth.signOut();
+      console.log('✅ Signed out from Supabase');
+    } catch (error) {
+      console.warn('⚠️ Error signing out from Supabase:', error);
+    }
+    
+    // Clear local state and storage
     setUser(null);
     localStorage.removeItem('rentalinx_user');
     localStorage.removeItem('rentalinx_session_expiry');
