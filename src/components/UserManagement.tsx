@@ -136,18 +136,43 @@ const UserManagement: React.FC = () => {
       setError(null);
       console.log('➕ Creating new user:', userData.email);
       
-      // Hash password
-      const hashedPassword = await hashPassword(userData.password);
-      
+      // Create user in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
+            name: userData.name,
+            role: userData.role
+          }
+        }
+      });
+
+      if (authError) {
+        console.error('❌ Error creating auth user:', authError);
+        if (authError.message.includes('already registered')) {
+          setError('Email sudah digunakan oleh pengguna lain');
+        } else {
+          setError('Gagal membuat akun pengguna: ' + authError.message);
+        }
+        return;
+      }
+
+      if (!authData.user) {
+        setError('Gagal membuat akun pengguna');
+        return;
+      }
+
       // Get permissions based on role
       const permissions = getPermissionsByRole(userData.role);
       
+      // Create user record in custom users table
       const { data, error: createError } = await supabase
         .from('users')
         .insert({
+          id: authData.user.id, // Use the same ID as auth user
           name: userData.name,
           email: userData.email,
-          password_hash: hashedPassword,
           role: userData.role,
           is_active: true,
           permissions: permissions
@@ -156,12 +181,10 @@ const UserManagement: React.FC = () => {
         .single();
       
       if (createError) {
-        console.error('❌ Error creating user:', createError);
-        if (createError.code === '23505' && createError.message.includes('email')) {
-          setError('Email sudah digunakan oleh pengguna lain');
-        } else {
-          setError('Gagal menambahkan pengguna: ' + createError.message);
-        }
+        console.error('❌ Error creating user record:', createError);
+        // Try to clean up the auth user if custom user creation failed
+        await supabase.auth.admin.deleteUser(authData.user.id);
+        setError('Gagal menambahkan pengguna: ' + createError.message);
         return;
       }
       
@@ -192,11 +215,7 @@ const UserManagement: React.FC = () => {
         permissions: getPermissionsByRole(userData.role)
       };
 
-      // Only update password if provided
-      if (userData.password && userData.password.trim()) {
-        updateData.password_hash = await hashPassword(userData.password);
-      }
-
+      // Update user in custom users table
       const { data, error: updateError } = await supabase
         .from('users')
         .update(updateData)
@@ -208,6 +227,32 @@ const UserManagement: React.FC = () => {
         console.error('❌ Error updating user:', updateError);
         setError('Gagal memperbarui pengguna: ' + updateError.message);
         return;
+      }
+
+      // Update password in auth if provided
+      if (userData.password && userData.password.trim()) {
+        const { error: passwordError } = await supabase.auth.admin.updateUserById(
+          selectedUser.id,
+          { password: userData.password }
+        );
+        
+        if (passwordError) {
+          console.error('❌ Error updating password:', passwordError);
+          setError('Pengguna diperbarui tetapi gagal mengubah password: ' + passwordError.message);
+        }
+      }
+
+      // Update email in auth if changed
+      if (userData.email !== selectedUser.email) {
+        const { error: emailError } = await supabase.auth.admin.updateUserById(
+          selectedUser.id,
+          { email: userData.email }
+        );
+        
+        if (emailError) {
+          console.error('❌ Error updating email:', emailError);
+          setError('Pengguna diperbarui tetapi gagal mengubah email: ' + emailError.message);
+        }
       }
       
       console.log('✅ User updated successfully:', data.email);
@@ -229,15 +274,25 @@ const UserManagement: React.FC = () => {
         setError(null);
         console.log('🗑️ Deleting user:', userId);
         
+        // Delete from custom users table first
         const { error: deleteError } = await supabase
           .from('users')
           .delete()
           .eq('id', userId);
         
         if (deleteError) {
-          console.error('❌ Error deleting user:', deleteError);
+          console.error('❌ Error deleting user record:', deleteError);
           setError('Gagal menghapus pengguna: ' + deleteError.message);
           return;
+        }
+
+        // Delete from auth
+        const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
+        
+        if (authDeleteError) {
+          console.error('❌ Error deleting auth user:', authDeleteError);
+          // User record is already deleted, so just show warning
+          setError('Pengguna dihapus dari sistem tetapi gagal menghapus akun auth: ' + authDeleteError.message);
         }
         
         console.log('✅ User deleted successfully');
@@ -666,15 +721,6 @@ const UserManagement: React.FC = () => {
     </div>
   );
 };
-
-// Helper function to hash password (same as AuthContext)
-async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'salt');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
 
 // Helper function to get permissions by role
 function getPermissionsByRole(role: string): string[] {
