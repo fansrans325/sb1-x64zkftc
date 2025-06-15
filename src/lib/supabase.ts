@@ -18,6 +18,7 @@ export interface Database {
           id: string;
           name: string;
           email: string;
+          password_hash: string;
           role: 'admin' | 'manager' | 'telemarketing-mobil' | 'telemarketing-bus' | 'telemarketing-elf' | 'telemarketing-hiace';
           is_active: boolean;
           permissions: string[];
@@ -31,6 +32,7 @@ export interface Database {
           id?: string;
           name: string;
           email: string;
+          password_hash: string;
           role: 'admin' | 'manager' | 'telemarketing-mobil' | 'telemarketing-bus' | 'telemarketing-elf' | 'telemarketing-hiace';
           is_active?: boolean;
           permissions?: string[];
@@ -44,6 +46,7 @@ export interface Database {
           id?: string;
           name?: string;
           email?: string;
+          password_hash?: string;
           role?: 'admin' | 'manager' | 'telemarketing-mobil' | 'telemarketing-bus' | 'telemarketing-elf' | 'telemarketing-hiace';
           is_active?: boolean;
           permissions?: string[];
