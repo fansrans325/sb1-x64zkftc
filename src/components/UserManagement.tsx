@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, Edit, Trash2, User, Shield, Eye, EyeOff, Car, Bus, Truck, Users, CheckCircle, XCircle, Calendar, Clock, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { userService } from '../services/userService';
 import { useAuth } from '../contexts/AuthContext';
 
 interface UserType {
@@ -39,22 +40,12 @@ const UserManagement: React.FC = () => {
       setError(null);
       console.log('📊 Loading users from Supabase...');
       
-      const { data, error: fetchError } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (fetchError) {
-        console.error('❌ Error loading users:', fetchError);
-        setError('Gagal memuat data pengguna: ' + fetchError.message);
-        return;
-      }
-
+      const data = await userService.getAll();
       console.log('✅ Users loaded successfully:', data?.length || 0, 'users');
       setUsers(data || []);
-    } catch (error) {
-      console.error('❌ Unexpected error loading users:', error);
-      setError('Gagal memuat data pengguna');
+    } catch (error: any) {
+      console.error('❌ Error loading users:', error);
+      setError('Gagal memuat data pengguna: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -136,65 +127,20 @@ const UserManagement: React.FC = () => {
       setError(null);
       console.log('➕ Creating new user:', userData.email);
       
-      // Create user in Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      const newUser = await userService.create({
+        name: userData.name,
         email: userData.email,
         password: userData.password,
-        options: {
-          data: {
-            name: userData.name,
-            role: userData.role
-          }
-        }
+        role: userData.role
       });
-
-      if (authError) {
-        console.error('❌ Error creating auth user:', authError);
-        if (authError.message.includes('already registered')) {
-          setError('Email sudah digunakan oleh pengguna lain');
-        } else {
-          setError('Gagal membuat akun pengguna: ' + authError.message);
-        }
-        return;
-      }
-
-      if (!authData.user) {
-        setError('Gagal membuat akun pengguna');
-        return;
-      }
-
-      // Get permissions based on role
-      const permissions = getPermissionsByRole(userData.role);
       
-      // Create user record in custom users table
-      const { data, error: createError } = await supabase
-        .from('users')
-        .insert({
-          id: authData.user.id, // Use the same ID as auth user
-          name: userData.name,
-          email: userData.email,
-          role: userData.role,
-          is_active: true,
-          permissions: permissions
-        })
-        .select()
-        .single();
-      
-      if (createError) {
-        console.error('❌ Error creating user record:', createError);
-        // Try to clean up the auth user if custom user creation failed
-        await supabase.auth.admin.deleteUser(authData.user.id);
-        setError('Gagal menambahkan pengguna: ' + createError.message);
-        return;
-      }
-      
-      console.log('✅ User created successfully:', data.email);
+      console.log('✅ User created successfully:', newUser.email);
       await loadUsers(); // Reload users
       setShowAddModal(false);
       alert('Pengguna berhasil ditambahkan!');
     } catch (error: any) {
       console.error('❌ Error adding user:', error);
-      setError('Gagal menambahkan pengguna');
+      setError('Gagal menambahkan pengguna: ' + error.message);
     } finally {
       setSubmitting(false);
     }
@@ -211,58 +157,24 @@ const UserManagement: React.FC = () => {
       const updateData: any = {
         name: userData.name,
         email: userData.email,
-        role: userData.role,
-        permissions: getPermissionsByRole(userData.role)
+        role: userData.role
       };
 
-      // Update user in custom users table
-      const { data, error: updateError } = await supabase
-        .from('users')
-        .update(updateData)
-        .eq('id', selectedUser.id)
-        .select()
-        .single();
-      
-      if (updateError) {
-        console.error('❌ Error updating user:', updateError);
-        setError('Gagal memperbarui pengguna: ' + updateError.message);
-        return;
-      }
-
-      // Update password in auth if provided
+      // Only include password if it was provided
       if (userData.password && userData.password.trim()) {
-        const { error: passwordError } = await supabase.auth.admin.updateUserById(
-          selectedUser.id,
-          { password: userData.password }
-        );
-        
-        if (passwordError) {
-          console.error('❌ Error updating password:', passwordError);
-          setError('Pengguna diperbarui tetapi gagal mengubah password: ' + passwordError.message);
-        }
+        updateData.password = userData.password;
       }
 
-      // Update email in auth if changed
-      if (userData.email !== selectedUser.email) {
-        const { error: emailError } = await supabase.auth.admin.updateUserById(
-          selectedUser.id,
-          { email: userData.email }
-        );
-        
-        if (emailError) {
-          console.error('❌ Error updating email:', emailError);
-          setError('Pengguna diperbarui tetapi gagal mengubah email: ' + emailError.message);
-        }
-      }
+      const updatedUser = await userService.update(selectedUser.id, updateData);
       
-      console.log('✅ User updated successfully:', data.email);
+      console.log('✅ User updated successfully:', updatedUser.email);
       await loadUsers(); // Reload users
       setShowEditModal(false);
       setSelectedUser(null);
       alert('Pengguna berhasil diperbarui!');
     } catch (error: any) {
       console.error('❌ Error updating user:', error);
-      setError('Gagal memperbarui pengguna');
+      setError('Gagal memperbarui pengguna: ' + error.message);
     } finally {
       setSubmitting(false);
     }
@@ -274,33 +186,14 @@ const UserManagement: React.FC = () => {
         setError(null);
         console.log('🗑️ Deleting user:', userId);
         
-        // Delete from custom users table first
-        const { error: deleteError } = await supabase
-          .from('users')
-          .delete()
-          .eq('id', userId);
-        
-        if (deleteError) {
-          console.error('❌ Error deleting user record:', deleteError);
-          setError('Gagal menghapus pengguna: ' + deleteError.message);
-          return;
-        }
-
-        // Delete from auth
-        const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
-        
-        if (authDeleteError) {
-          console.error('❌ Error deleting auth user:', authDeleteError);
-          // User record is already deleted, so just show warning
-          setError('Pengguna dihapus dari sistem tetapi gagal menghapus akun auth: ' + authDeleteError.message);
-        }
+        await userService.delete(userId);
         
         console.log('✅ User deleted successfully');
         await loadUsers(); // Reload users
         alert('Pengguna berhasil dihapus!');
       } catch (error: any) {
         console.error('❌ Error deleting user:', error);
-        setError('Gagal menghapus pengguna');
+        setError('Gagal menghapus pengguna: ' + error.message);
       }
     }
   };
@@ -313,22 +206,13 @@ const UserManagement: React.FC = () => {
       
       console.log('🔄 Toggling user status:', userToToggle.email);
       
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ is_active: !userToToggle.is_active })
-        .eq('id', userId);
-      
-      if (updateError) {
-        console.error('❌ Error toggling user status:', updateError);
-        setError('Gagal mengubah status pengguna: ' + updateError.message);
-        return;
-      }
+      await userService.toggleStatus(userId);
       
       console.log('✅ User status toggled successfully');
       await loadUsers(); // Reload users
     } catch (error: any) {
       console.error('❌ Error toggling user status:', error);
-      setError('Gagal mengubah status pengguna');
+      setError('Gagal mengubah status pengguna: ' + error.message);
     }
   };
 
@@ -721,25 +605,5 @@ const UserManagement: React.FC = () => {
     </div>
   );
 };
-
-// Helper function to get permissions by role
-function getPermissionsByRole(role: string): string[] {
-  switch (role) {
-    case 'admin':
-      return ['all'];
-    case 'manager':
-      return ['dashboard', 'customers', 'vehicles', 'reports', 'maintenance', 'vendors', 'kir', 'tax', 'pricing', 'hpp', 'invoices'];
-    case 'telemarketing-mobil':
-      return ['customers'];
-    case 'telemarketing-bus':
-      return ['customers'];
-    case 'telemarketing-elf':
-      return ['customers'];
-    case 'telemarketing-hiace':
-      return ['customers'];
-    default:
-      return [];
-  }
-}
 
 export default UserManagement;

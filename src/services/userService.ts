@@ -54,7 +54,7 @@ export const userService = {
   },
 
   // Create new user via Edge Function
-  async create(user: { name: string; email: string; password_hash: string; role: string }): Promise<User> {
+  async create(user: { name: string; email: string; password: string; role: string }): Promise<User> {
     try {
       // Get the current session to include auth token
       const { data: { session } } = await supabase.auth.getSession();
@@ -75,7 +75,7 @@ export const userService = {
         body: JSON.stringify({
           name: user.name,
           email: user.email,
-          password: user.password_hash, // Edge function expects 'password', not 'password_hash'
+          password: user.password,
           role: user.role
         })
       });
@@ -93,54 +93,119 @@ export const userService = {
     }
   },
 
-  // Update user
-  async update(id: string, updates: UserUpdate): Promise<User> {
-    // If password is being updated, hash it
-    if (updates.password_hash) {
-      updates.password_hash = await hashPassword(updates.password_hash);
-    }
+  // Update user via Edge Function
+  async update(id: string, updates: { name?: string; email?: string; role?: string; password?: string; is_active?: boolean }): Promise<User> {
+    try {
+      // Get the current session to include auth token
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('No active session found');
+      }
 
-    // Update permissions based on role if role is being updated
-    if (updates.role) {
-      updates.permissions = getPermissionsByRole(updates.role);
-    }
+      // Call the Edge Function
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-user`;
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: id,
+          ...updates
+        })
+      });
 
-    const { data, error } = await supabase
-      .from('users')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update user');
+      }
 
-    if (error) {
+      const result = await response.json();
+      return result.user;
+    } catch (error) {
       console.error('Error updating user:', error);
-      throw new Error('Failed to update user');
+      throw error;
     }
-
-    return data;
   },
 
-  // Delete user
+  // Delete user via Edge Function
   async delete(id: string): Promise<void> {
-    const { error } = await supabase
-      .from('users')
-      .delete()
-      .eq('id', id);
+    try {
+      // Get the current session to include auth token
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('No active session found');
+      }
 
-    if (error) {
+      // Call the Edge Function
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-user`;
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: id
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete user');
+      }
+    } catch (error) {
       console.error('Error deleting user:', error);
-      throw new Error('Failed to delete user');
+      throw error;
     }
   },
 
-  // Toggle user active status
+  // Toggle user active status via Edge Function
   async toggleStatus(id: string): Promise<User> {
-    const user = await this.getById(id);
-    if (!user) {
-      throw new Error('User not found');
-    }
+    try {
+      const user = await this.getById(id);
+      if (!user) {
+        throw new Error('User not found');
+      }
 
-    return this.update(id, { is_active: !user.is_active });
+      // Get the current session to include auth token
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('No active session found');
+      }
+
+      // Call the Edge Function
+      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/toggle-user-status`;
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: id,
+          is_active: !user.is_active
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to toggle user status');
+      }
+
+      const result = await response.json();
+      return result.user;
+    } catch (error) {
+      console.error('Error toggling user status:', error);
+      throw error;
+    }
   },
 
   // Search users
@@ -175,33 +240,3 @@ export const userService = {
     return data || [];
   }
 };
-
-// Helper function to hash password (simplified for demo)
-async function hashPassword(password: string): Promise<string> {
-  // In production, use bcrypt or similar
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'salt');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-// Helper function to get permissions by role
-function getPermissionsByRole(role: string): string[] {
-  switch (role) {
-    case 'admin':
-      return ['all'];
-    case 'manager':
-      return ['dashboard', 'customers', 'vehicles', 'reports', 'maintenance', 'vendors', 'kir', 'tax', 'pricing', 'hpp', 'invoices'];
-    case 'telemarketing-mobil':
-      return ['customers-mobil'];
-    case 'telemarketing-bus':
-      return ['customers-bus'];
-    case 'telemarketing-elf':
-      return ['customers-elf'];
-    case 'telemarketing-hiace':
-      return ['customers-hiace'];
-    default:
-      return [];
-  }
-}
