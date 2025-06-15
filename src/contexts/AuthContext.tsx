@@ -32,11 +32,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (savedUser && sessionExpiry) {
           const expiryDate = new Date(sessionExpiry);
           if (expiryDate > new Date()) {
-            setUser(JSON.parse(savedUser));
+            const userData = JSON.parse(savedUser);
+            setUser(userData);
+            console.log('Restored user session:', userData);
           } else {
             // Session expired
             localStorage.removeItem('rentalinx_user');
             localStorage.removeItem('rentalinx_session_expiry');
+            console.log('Session expired, cleared storage');
           }
         }
       } catch (error) {
@@ -52,6 +55,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const login = async (email: string, password: string, rememberMe: boolean = false): Promise<{ success: boolean; error?: string }> => {
+    console.log('Login attempt for:', email);
     setIsLoading(true);
     
     try {
@@ -77,16 +81,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         .eq('is_active', true)
         .limit(1);
 
+      console.log('Database query result:', { users, fetchError });
+
       if (fetchError) {
         console.error('Database error:', fetchError);
         return { success: false, error: 'Terjadi kesalahan sistem. Silakan coba lagi.' };
       }
 
       if (!users || users.length === 0) {
+        console.log('No user found with email:', email);
         return { success: false, error: 'Email atau password salah' };
       }
 
       const foundUser = users[0];
+      console.log('Found user:', { id: foundUser.id, email: foundUser.email, role: foundUser.role });
 
       // Check if user is active
       if (!foundUser.is_active) {
@@ -95,15 +103,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       // Validate password (simplified hash check)
       const hashedInputPassword = await hashPassword(password);
+      console.log('Password validation:', { 
+        inputHash: hashedInputPassword.substring(0, 10) + '...', 
+        storedHash: foundUser.password_hash.substring(0, 10) + '...',
+        match: hashedInputPassword === foundUser.password_hash 
+      });
+
       if (hashedInputPassword !== foundUser.password_hash) {
         return { success: false, error: 'Email atau password salah' };
       }
 
       // Update last login
-      await supabase
-        .from('users')
-        .update({ last_login: new Date().toISOString() })
-        .eq('id', foundUser.id);
+      try {
+        await supabase
+          .from('users')
+          .update({ last_login: new Date().toISOString() })
+          .eq('id', foundUser.id);
+      } catch (updateError) {
+        console.warn('Failed to update last login:', updateError);
+        // Don't fail login for this
+      }
 
       // Create user session
       const userSession: User = {
@@ -117,6 +136,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         permissions: foundUser.permissions || []
       };
 
+      console.log('Creating user session:', userSession);
       setUser(userSession);
 
       // Store session
@@ -126,6 +146,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.setItem('rentalinx_user', JSON.stringify(userSession));
       localStorage.setItem('rentalinx_session_expiry', expiryDate.toISOString());
 
+      console.log('Login successful, session stored');
       return { success: true };
     } catch (error) {
       console.error('Login error:', error);
@@ -136,6 +157,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const logout = (): void => {
+    console.log('Logging out user');
     setUser(null);
     localStorage.removeItem('rentalinx_user');
     localStorage.removeItem('rentalinx_session_expiry');
@@ -191,6 +213,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     hasPermission,
     resetPassword
   };
+
+  console.log('AuthContext state:', { 
+    isAuthenticated: !!user, 
+    isLoading, 
+    userRole: user?.role,
+    userName: user?.name 
+  });
 
   return (
     <AuthContext.Provider value={value}>
